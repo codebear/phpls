@@ -1,9 +1,9 @@
 use crate::codetree::file_scanner::FileScanner;
 use crate::issues::OutputEmitter;
 use crate::phpparser::phpfile::PHPFile;
-use php_tree_sitter::analysis::state::AnalysisState;
-use php_tree_sitter::issue::{Issue, IssueEmitter};
-use php_tree_sitter::symboldata::SymbolData;
+use phpanalyzer::analysis::state::AnalysisState;
+use phpanalyzer::issue::{Issue, IssueEmitter};
+use phpanalyzer::symboldata::SymbolData;
 use std::ffi::OsString;
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
@@ -15,7 +15,7 @@ use url::Url;
 
 pub trait GenericProgress {
     fn set_max(&self, max: usize);
-    fn progress(&self, str: &str);
+    fn progress(&self, str: &str, extra_info: Option<String>);
 }
 
 #[derive()]
@@ -51,7 +51,7 @@ impl GenericProgress for CallbackProgress {
         self.max.store(max, Ordering::Relaxed);
     }
 
-    fn progress(&self, ident: &str) {
+    fn progress(&self, ident: &str, extra: Option<String>) {
         let ident: String = ident.into();
         {
             let mut cnt = self.count.write().unwrap();
@@ -84,21 +84,29 @@ impl GenericProgress for CallbackProgress {
         let max = if *read > self_max { *read } else { self_max };
         let percent = if max > 0 { *read * 100 / max } else { 0 };
         if percent != *self.prev_output.read().unwrap() {
-            (self.callback)(percent, ident);
+            let mut output = ident;
+            if let Some(info) = extra {
+                output.push_str(" (");
+                output.push_str(&info);
+                output.push_str(")");
+            }
+            (self.callback)(percent, output);
             *self.prev_output.write().unwrap() = percent;
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct CaptureEmitter {
     issues: Arc<RwLock<Vec<Issue>>>,
+    count: AtomicUsize,
 }
 
 impl CaptureEmitter {
     pub fn new() -> Self {
         Self {
             issues: Arc::new(RwLock::new(vec![])),
+            count: AtomicUsize::new(0),
         }
     }
 
@@ -112,6 +120,12 @@ impl IssueEmitter for CaptureEmitter {
     fn emit(&self, issue: Issue) {
         let mut write = self.issues.write().unwrap();
         write.push(issue);
+        self.count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn get_status(&self) -> Option<String> {
+        let cnt = self.count.load(Ordering::Relaxed);
+        Some(format!("Found {} issues", cnt))
     }
 }
 pub struct CodeTree {
@@ -170,8 +184,7 @@ impl CodeTree {
             .collect()
     }
 
-    pub fn traverse(&self, thread_count: usize) -> std::io::Result<()> {
-        let output_issues = true;
+    pub fn traverse(&self, thread_count: usize, output_issues: bool) -> std::io::Result<()> {
         let capture_emitter = Arc::new(CaptureEmitter::new());
         let emitter: Arc<dyn IssueEmitter + Send + Sync> = if output_issues {
             Arc::new(OutputEmitter::new())
@@ -187,6 +200,7 @@ impl CodeTree {
         if !output_issues {
             use itertools::Itertools;
             eprintln!("\nSummary of issues:\n");
+            let mut sum: usize = 0;
             for (_key, group) in capture_emitter
                 .get_issues()
                 .iter()
@@ -194,10 +208,11 @@ impl CodeTree {
                 .into_group_map()
             {
                 let ident = group[0].get_name();
-                eprintln!(" *  {}: {}", ident, group.len())
+                eprintln!(" *  {}: {}", ident, group.len());
+                sum += group.len();
                 // void
             }
-            eprintln!("\n");
+            eprintln!("\nTotally {} issues\n", sum);
         }
         res
     }
@@ -254,7 +269,7 @@ impl CodeTree {
         let files = self.files.clone();
         status.set_max(files.read().unwrap().len());
         let mut state = AnalysisState::new_with_symbols(symbol_data.clone());
-        php_tree_sitter::native::register(&mut state);
+        phpanalyzer::native::register(&mut state);
 
         if thread_count > 1 {
             let thread_emitter = emitter.clone();
@@ -263,8 +278,8 @@ impl CodeTree {
             self.traverse_list_with_threads(
                 thread_count,
                 Arc::new(move |file| {
-                    file.analyze_round_one(&*thread_emitter, thread_symbol.clone());
-                    status.progress("pass 1/2");
+                    file.analyze_first_pass(&*thread_emitter, thread_symbol.clone());
+                    status.progress("pass 1/3", thread_emitter.get_status());
                 }),
             )?;
         } else {
@@ -273,11 +288,11 @@ impl CodeTree {
             let thread_symbol = symbol_data.clone();
 
             self.traverse_list_in_thread(Box::new(move |file| {
-                file.analyze_round_one(&*thread_emitter, thread_symbol.clone());
-                status.progress("pass 1/2");
+                file.analyze_first_pass(&*thread_emitter, thread_symbol.clone());
+                status.progress("pass 1/3", thread_emitter.get_status());
             }))?;
         }
-
+ 
         if thread_count > 1 {
             let status = status.clone();
             let thread_emitter = emitter.clone();
@@ -286,8 +301,8 @@ impl CodeTree {
             self.traverse_list_with_threads(
                 thread_count,
                 Arc::new(move |file| {
-                    file.analyze_round_two(&*thread_emitter, thread_symbol.clone());
-                    status.progress("pass 2/2");
+                    file.analyze_second_pass(&*thread_emitter, thread_symbol.clone());
+                    status.progress("pass 2/3", thread_emitter.get_status());
                 }),
             )?;
         } else {
@@ -295,11 +310,34 @@ impl CodeTree {
             let thread_emitter = emitter.clone();
             let thread_symbol = symbol_data.clone();
             self.traverse_list_in_thread(Box::new(move |file| {
-                file.analyze_round_two(&*thread_emitter, thread_symbol.clone());
-                status.progress("pass 2/2");
+                file.analyze_second_pass(&*thread_emitter, thread_symbol.clone());
+                status.progress("pass 2/3", thread_emitter.get_status());
             }))?;
         }
 
+/*
+         if thread_count > 1 {
+            let status = status.clone();
+            let thread_emitter = emitter.clone();
+            let thread_symbol = symbol_data.clone();
+
+            self.traverse_list_with_threads(
+                thread_count,
+                Arc::new(move |file| {
+                    file.analyze_third_pass(&*thread_emitter, thread_symbol.clone());
+                    status.progress("pass 3/3", thread_emitter.get_status());
+                }),
+            )?;
+        } else {
+            let status = status.clone();
+            let thread_emitter = emitter.clone();
+            let thread_symbol = symbol_data.clone();
+            self.traverse_list_in_thread(Box::new(move |file| {
+                file.analyze_third_pass(&*thread_emitter, thread_symbol.clone());
+                status.progress("pass 3/3", thread_emitter.get_status());
+            }))?;
+        }
+*/
         Ok(())
     }
 
@@ -400,10 +438,10 @@ impl CodeTree {
 
         for _ in 0..thread_count {
             let iter_callback = callback.clone();
-            let (tx, rx) = channel::<Arc<PHPFile>>();
+            let (sender, receiver) = channel::<Arc<PHPFile>>();
             let handle = thread::spawn(move || {
                 loop {
-                    match rx.recv() {
+                    match receiver.recv() {
                         Ok(file) => {
                             // eprintln!("Should analyze file {:?}", file);
                             iter_callback(file);
@@ -415,7 +453,7 @@ impl CodeTree {
                     }
                 }
             });
-            workers.push(Worker { handle, sender: tx });
+            workers.push(Worker { handle, sender });
         }
 
         let reader = match self.files.read() {

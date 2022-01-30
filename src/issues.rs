@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use std::sync::RwLock;
 
-use php_tree_sitter::issue::Issue;
-use php_tree_sitter::issue::IssueEmitter;
+use phpanalyzer::issue::Issue;
+use phpanalyzer::issue::IssueEmitter;
 
 pub struct OutputEmitter {
     pub file_name: RwLock<Option<PathBuf>>,

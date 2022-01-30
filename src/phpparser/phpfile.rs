@@ -1,9 +1,9 @@
-use php_tree_sitter::analysis::analyzer::Analyzer;
-use php_tree_sitter::analysis::state::{AnalysisState, LookingForNode};
-use php_tree_sitter::autonodes::any::AnyNodeRef;
-use php_tree_sitter::issue::{IssueEmitter, VoidEmitter};
-use php_tree_sitter::symboldata::SymbolData;
-use php_tree_sitter::symbols::Symbol;
+use phpanalyzer::analysis::analyzer::Analyzer;
+use phpanalyzer::analysis::state::{AnalysisState, LookingForNode};
+use phpanalyzer::autonodes::any::AnyNodeRef;
+use phpanalyzer::issue::{IssueEmitter, VoidEmitter};
+use phpanalyzer::symboldata::SymbolData;
+use phpanalyzer::symbols::Symbol;
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
 use std::sync::RwLock;
@@ -28,8 +28,8 @@ use crate::php::astnodeimpl::FunctionProperties;
 use crate::php::type_analysis::NodeType;
 */
 
-use php_tree_sitter::description::NodeDescription;
-use php_tree_sitter::Point;
+use phpanalyzer::description::NodeDescription;
+use phpanalyzer::Point;
 
 #[derive(Clone)]
 pub struct PHPFile {
@@ -68,18 +68,18 @@ impl PHPFile {
 
         // Pass 1
         let mut state = AnalysisState::new_with_symbols(symbol_data.clone());
-        php_tree_sitter::native::register(&mut state);
+        phpanalyzer::native::register(&mut state);
 
-        a.round_one(&mut state, &void_emitter);
+        a.first_pass(&mut state, &void_emitter);
 
         // Pass 2-1
         let mut state = AnalysisState::new_with_symbols(symbol_data.clone());
-        php_tree_sitter::native::register(&mut state);
-        a.round_two(&mut state, &void_emitter);
+        phpanalyzer::native::register(&mut state);
+        a.second_pass(&mut state, &void_emitter);
 
         // Pass 2-2
         let mut state = AnalysisState::new_with_symbols(symbol_data);
-        php_tree_sitter::native::register(&mut state);
+        phpanalyzer::native::register(&mut state);
         let result_container = Arc::new(RwLock::new(None));
 
         let result_container_copy = result_container.clone();
@@ -95,7 +95,7 @@ impl PHPFile {
             })))),
         };
         state.looking_for_node = Some(looking_for);
-        a.round_two(&mut state, &void_emitter);
+        a.third_pass(&mut state, &void_emitter);
 
         let mut writeable_result = result_container.write().unwrap();
 
@@ -125,18 +125,18 @@ impl PHPFile {
 
         // Pass 1
         let mut state = AnalysisState::new_with_symbols(symbol_data.clone());
-        php_tree_sitter::native::register(&mut state);
+        phpanalyzer::native::register(&mut state);
 
-        a.round_one(&mut state, &void_emitter);
+        a.first_pass(&mut state, &void_emitter);
 
         // Pass 2-1
         let mut state = AnalysisState::new_with_symbols(symbol_data.clone());
-        php_tree_sitter::native::register(&mut state);
-        a.round_two(&mut state, &void_emitter);
+        phpanalyzer::native::register(&mut state);
+        a.second_pass(&mut state, &void_emitter);
 
         // Pass 2-2
         let mut state = AnalysisState::new_with_symbols(symbol_data);
-        php_tree_sitter::native::register(&mut state);
+        phpanalyzer::native::register(&mut state);
         let result_container = Arc::new(RwLock::new(None));
 
         let result_container_copy = result_container.clone();
@@ -151,7 +151,7 @@ impl PHPFile {
             })))),
         };
         state.looking_for_node = Some(looking_for);
-        a.round_two(&mut state, &void_emitter);
+        a.third_pass(&mut state, &void_emitter);
 
         if let Some(tekst) = &*result_container.read().unwrap() {
             return Ok(Some(format!("FANT VIA ANALYZE: {}", tekst)));
@@ -205,21 +205,31 @@ impl PHPFile {
         }
     }
 
-    pub fn analyze_round_one(&self, emitter: &dyn IssueEmitter, symbol_data: Arc<SymbolData>) {
+    pub fn analyze_first_pass(&self, emitter: &dyn IssueEmitter, symbol_data: Arc<SymbolData>) {
         if let Some(analyzer) = self.get_analyzer() {
             let mut state = AnalysisState::new_with_symbols(symbol_data);
             state.filename = Some(self.fq_file_name.clone());
             state.pass = 1;
-            analyzer.round_one(&mut state, emitter);
+            analyzer.first_pass(&mut state, emitter);
         }
     }
 
-    pub fn analyze_round_two(&self, emitter: &dyn IssueEmitter, symbol_data: Arc<SymbolData>) {
+    pub fn analyze_second_pass(&self, emitter: &dyn IssueEmitter, symbol_data: Arc<SymbolData>) {
+        if let Some(analyzer) = self.get_analyzer() {
+            let mut state = AnalysisState::new_with_symbols(symbol_data);
+            state.filename = Some(self.fq_file_name.clone());
+            state.pass = 1;
+            analyzer.second_pass(&mut state, emitter);
+        }
+    }
+
+
+    pub fn analyze_third_pass(&self, emitter: &dyn IssueEmitter, symbol_data: Arc<SymbolData>) {
         if let Some(analyzer) = self.get_analyzer() {
             let mut state = AnalysisState::new_with_symbols(symbol_data);
             state.pass = 2;
             state.filename = Some(self.fq_file_name.clone());
-            analyzer.round_two(&mut state, emitter);
+            analyzer.third_pass(&mut state, emitter);
         }
     }
 
@@ -232,9 +242,9 @@ impl PHPFile {
         symbol_data: Arc<SymbolData>,
     ) -> std::io::Result<()> {
         let mut state = AnalysisState::new_with_symbols(symbol_data.clone());
-        php_tree_sitter::native::register(&mut state);
-        self.analyze_round_one(emitter, symbol_data.clone());
-        self.analyze_round_two(emitter, symbol_data);
+        phpanalyzer::native::register(&mut state);
+        self.analyze_first_pass(emitter, symbol_data.clone());
+        self.analyze_third_pass(emitter, symbol_data);
         Ok(())
     }
 
@@ -341,7 +351,7 @@ impl PHPFile {
     }
 
     /* pub fn parse_file(&self) -> Result<PHPAstTree, &'static str> {
-            use php_tree_sitter::parser::PHPParser;
+            use phpanalyzer::parser::PHPParser;
             use std::fs;
             let mut parser = PHPParser::new();
 

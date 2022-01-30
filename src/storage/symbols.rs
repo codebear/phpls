@@ -1,7 +1,7 @@
-extern crate rusqlite;
+// extern crate rusqlite;
 
 
-use rusqlite::{Connection, Error};
+// use rusqlite::{Connection, Error};
 use std::path::PathBuf;
 
 
@@ -23,7 +23,7 @@ impl Position {
         return SymbolStorageError::Sqlite(self);
     }
 }*/
-
+/*
 impl From<Error> for SymbolStorageError {
     fn from(error: Error) -> Self {
         SymbolStorageError::Sqlite(error)
@@ -39,6 +39,8 @@ pub enum SymbolStorageError {
     Sqlite(Error),
     Custom(&'static str),
 }
+
+*/
 /*
 impl SymbolStorage {
     pub fn new() -> std::result::Result<Self, SymbolStorageError> {

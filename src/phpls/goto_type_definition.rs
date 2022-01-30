@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use php_tree_sitter::{
+use phpanalyzer::{
     autonodes::any::AnyNodeRef, issue::VoidEmitter, symboldata::ArcedSymbolAccess, symbols::Symbol,
     types::union::DiscreteType,
 };

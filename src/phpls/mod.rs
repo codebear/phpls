@@ -5,3 +5,4 @@ pub mod hover;
 pub mod instance;
 pub mod stdioserver;
 pub mod tcpserver;
+pub mod locations;

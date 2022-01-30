@@ -1,15 +1,13 @@
 use crate::codetree::codetree::CallbackProgress;
 use crate::codetree::codetree::CodeTree;
-use crate::phpparser::phpfile::PHPFile;
-use php_tree_sitter::analysis::state::AnalysisState;
-use php_tree_sitter::autonodes::any::AnyNodeRef;
-use php_tree_sitter::issue::Issue;
-use php_tree_sitter::issue::Severity;
+use phpanalyzer::analysis::state::AnalysisState;
+use phpanalyzer::autonodes::any::AnyNodeRef;
+use phpanalyzer::issue::Issue;
+use phpanalyzer::issue::Severity;
 
-use php_tree_sitter::symboldata::ArcedSymbolAccess;
-use php_tree_sitter::symboldata::SymbolData;
+use phpanalyzer::symboldata::SymbolData;
 
-// use php_tree_sitter::symboldata::SymbolData;
+// use phpanalyzer::symboldata::SymbolData;
 use rust_lsp::jsonrpc::method_types::MethodError;
 use rust_lsp::jsonrpc::Endpoint;
 use rust_lsp::jsonrpc::MethodCompletable;

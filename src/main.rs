@@ -1,6 +1,6 @@
 #![recursion_limit = "256"]
 
-use php_tree_sitter::issue::VoidEmitter;
+use phpanalyzer::issue::VoidEmitter;
 
 use crate::codetree::codetree::CodeTree;
 use crate::codetree::workspace::Workspace;
@@ -22,7 +22,7 @@ mod issues;
 mod phpls;
 mod phpparser;
 mod storage;
-mod type_analysis;
+
 
 // #[cfg(test)]
 // mod tests;
@@ -72,10 +72,10 @@ impl PHPLintProgram {
         file.dump_ast(&mut VoidEmitter::new())
     }
 
-    fn traverse_folder(&self, folder: String, thread_count: usize) -> std::io::Result<()> {
-        eprintln!("Her skal vi traversere {}", &folder);
+    fn traverse_folder(&self, folder: String, thread_count: usize, output_issues: bool) -> std::io::Result<()> {
+        eprintln!("Her skal vi traversere {} med {} threads", &folder, thread_count);
         let code_tree = CodeTree::new(folder.into());
-        code_tree.traverse(thread_count)
+        code_tree.traverse(thread_count, output_issues)
     }
 
     fn usage(&self) {
@@ -95,6 +95,7 @@ impl PHPLintProgram {
         // Container to keep all the jobs we will perform once the cmdline parsing is complete
         let mut tasks: Vec<Box<dyn FnOnce() -> std::io::Result<()>>> = vec![];
         let mut threads: Option<usize> = None;
+        let mut output_issues: bool = false;
 
         while args.len() > 0 {
             let arg = args
@@ -148,11 +149,14 @@ impl PHPLintProgram {
                         return -1;
                     }
                 }
+                "--output-issues" => {
+                    output_issues = true;
+                }
                 "--traverse" => {
                     if let Some(root_folder) = args.pop_front() {
                         let thread_count = threads.clone().unwrap_or(1);
                         tasks.push(Box::new(move || {
-                            self.traverse_folder(root_folder, thread_count)
+                            self.traverse_folder(root_folder, thread_count, output_issues)
                         }));
                     } else {
                         eprintln!("Error: Missing folder to `--traverse`");
@@ -201,11 +205,11 @@ impl PHPLintProgram {
             if let Err(e) = task() {
                 eprintln!("ERROR: {}", e);
                 self.usage();
-                php_tree_sitter::dump_missing_stats();
+                phpanalyzer::dump_missing_stats();
                 return -1;
             }
         }
-        php_tree_sitter::dump_missing_stats();
+        phpanalyzer::dump_missing_stats();
         return 0;
     }
 }

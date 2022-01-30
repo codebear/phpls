@@ -1,4 +1,4 @@
-use php_tree_sitter::description::NodeDescription;
+use phpanalyzer::description::NodeDescription;
 use rust_lsp::{
     jsonrpc::MethodCompletable,
     lsp_types::{
@@ -24,7 +24,7 @@ pub fn hover(
             kind: MarkupKind::Markdown,
             value: markdown.clone(),
         }),
-        range: range,
+        range,
     }));
     // eprintln!("hover(..): range:{:?} complete markdown: {}", range, markdown);
 }

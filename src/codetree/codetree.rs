@@ -292,7 +292,7 @@ impl CodeTree {
                 status.progress("pass 1/3", thread_emitter.get_status());
             }))?;
         }
- 
+
         if thread_count > 1 {
             let status = status.clone();
             let thread_emitter = emitter.clone();
@@ -315,8 +315,7 @@ impl CodeTree {
             }))?;
         }
 
-/*
-         if thread_count > 1 {
+        if thread_count > 1 {
             let status = status.clone();
             let thread_emitter = emitter.clone();
             let thread_symbol = symbol_data.clone();
@@ -337,7 +336,7 @@ impl CodeTree {
                 status.progress("pass 3/3", thread_emitter.get_status());
             }))?;
         }
-*/
+
         Ok(())
     }
 

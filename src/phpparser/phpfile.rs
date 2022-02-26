@@ -240,18 +240,19 @@ impl PHPFile {
         &self,
         emitter: &dyn IssueEmitter,
         symbol_data: Arc<SymbolData>,
-    ) -> std::io::Result<()> {
+    ) -> std::io::Result<Arc<SymbolData>> {
         let mut state = AnalysisState::new_with_symbols(symbol_data.clone());
         phpanalyzer::native::register(&mut state);
         self.analyze_first_pass(emitter, symbol_data.clone());
-        self.analyze_third_pass(emitter, symbol_data);
-        Ok(())
+        self.analyze_second_pass(emitter, symbol_data.clone());
+        self.analyze_third_pass(emitter, symbol_data.clone());
+        Ok(symbol_data)
     }
 
     ///
     /// Analyze this file standalone
     ///
-    pub fn analyze(&self, emitter: &dyn IssueEmitter) -> std::io::Result<()> {
+    pub fn analyze(&self, emitter: &dyn IssueEmitter) -> std::io::Result<Arc<SymbolData>> {
         let symbol_data = Arc::new(SymbolData::new());
         self.analyze_with_symbol_data(emitter, symbol_data)
     }

@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 
 use phpanalyzer::issue::VoidEmitter;
+use phpanalyzer::symboldata::SymbolData;
 
 use crate::codetree::codetree::CodeTree;
 use crate::codetree::workspace::Workspace;
@@ -15,6 +16,7 @@ use std::io::ErrorKind;
 // use crate::codetree::codetree::CodeTree;
 
 use std::env;
+use std::sync::Arc;
 
 mod codetree;
 mod config;
@@ -45,7 +47,7 @@ impl PHPLintProgram {
         let file = PHPFile::new(filename.into());
         eprintln!("File initialized");
         let mut emitter = OutputEmitter::new();
-        if let Ok(_) = file.analyze(&mut emitter) {
+        if let Ok(symbols) = file.analyze(&mut emitter) {
             eprintln!("Done analyzing");
             Ok(())
         } else {
@@ -72,14 +74,30 @@ impl PHPLintProgram {
         file.dump_ast(&mut VoidEmitter::new())
     }
 
-    fn traverse_folder(&self, folder: String, thread_count: usize, output_issues: bool) -> std::io::Result<()> {
-        eprintln!("Her skal vi traversere {} med {} threads", &folder, thread_count);
+    fn traverse_folder(
+        &self,
+        folder: String,
+        thread_count: usize,
+        output_issues: bool,
+    ) -> std::io::Result<Arc<SymbolData>> {
+        eprintln!(
+            "Her skal vi traversere {} med {} threads",
+            &folder, thread_count
+        );
         let code_tree = CodeTree::new(folder.into());
-        code_tree.traverse(thread_count, output_issues)
+        let pre = std::time::Instant::now();
+        let res = code_tree.traverse(thread_count, output_issues);
+
+        let clock = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .ok()
+            .unwrap_or_else(|| std::time::Duration::new(0, 0));
+        eprintln!("Elapsed: {}ms ({:?})", pre.elapsed().as_millis(), clock);
+        res
     }
 
     fn usage(&self) {
-        eprintln!("   {} [--server type| --analyze filename | --describe filename lineno charpos | --traverse folder]", self.cmdname);
+        eprintln!("   {} [--server type| --analyze filename | --describe filename lineno charpos | [--output-issues] --traverse folder]", self.cmdname);
     }
 
     fn main(&self, mut args: VecDeque<String>) -> i32 {
@@ -96,6 +114,7 @@ impl PHPLintProgram {
         let mut tasks: Vec<Box<dyn FnOnce() -> std::io::Result<()>>> = vec![];
         let mut threads: Option<usize> = None;
         let mut output_issues: bool = false;
+        let mut dump_cache: bool = false;
 
         while args.len() > 0 {
             let arg = args
@@ -152,11 +171,27 @@ impl PHPLintProgram {
                 "--output-issues" => {
                     output_issues = true;
                 }
+                "--dump-cache" => {
+                    dump_cache = true;
+                }
                 "--traverse" => {
                     if let Some(root_folder) = args.pop_front() {
                         let thread_count = threads.clone().unwrap_or(1);
                         tasks.push(Box::new(move || {
-                            self.traverse_folder(root_folder, thread_count, output_issues)
+                            let res =
+                                self.traverse_folder(root_folder, thread_count, output_issues);
+                            let clock = std::time::SystemTime::now()
+                                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                .ok()
+                                .unwrap_or_else(|| std::time::Duration::new(0, 0));
+                            eprintln!("CLOCK EHERE {:?}", clock);
+                            let symbols = res?;
+
+                            if dump_cache {
+                                cerum::cache::dump_cache(symbols);
+                            }
+
+                            Ok(())
                         }));
                     } else {
                         eprintln!("Error: Missing folder to `--traverse`");
@@ -201,14 +236,26 @@ impl PHPLintProgram {
         }
 
         // execute all tasks
+        let pre = std::time::Instant::now();
         for task in tasks {
+            eprintln!("Starting task... ({}ms)", pre.elapsed().as_millis());
             if let Err(e) = task() {
                 eprintln!("ERROR: {}", e);
                 self.usage();
                 phpanalyzer::dump_missing_stats();
                 return -1;
             }
+            let clock = std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .ok()
+                .unwrap_or_else(|| std::time::Duration::new(0, 0));
+            eprintln!(
+                "Completed task ({}ms), {:?}",
+                pre.elapsed().as_millis(),
+                clock
+            );
         }
+        eprintln!("Completed all tasks ({}ms)", pre.elapsed().as_millis());
         phpanalyzer::dump_missing_stats();
         return 0;
     }

@@ -4,6 +4,7 @@ use crate::phpparser::phpfile::PHPFile;
 use phpanalyzer::analysis::state::AnalysisState;
 use phpanalyzer::issue::{Issue, IssueEmitter};
 use phpanalyzer::symboldata::SymbolData;
+use phpanalyzer::symbols::Symbol;
 use std::ffi::OsString;
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
@@ -184,7 +185,7 @@ impl CodeTree {
             .collect()
     }
 
-    pub fn traverse(&self, thread_count: usize, output_issues: bool) -> std::io::Result<()> {
+    pub fn traverse(&self, thread_count: usize, output_issues: bool) -> std::io::Result<Arc<SymbolData>> {
         let capture_emitter = Arc::new(CaptureEmitter::new());
         let emitter: Arc<dyn IssueEmitter + Send + Sync> = if output_issues {
             Arc::new(OutputEmitter::new())
@@ -240,7 +241,7 @@ impl CodeTree {
         symbol_data: Arc<SymbolData>,
         emitter: Arc<dyn IssueEmitter + Send + Sync>,
         status: Arc<dyn GenericProgress + Send + Sync>,
-    ) -> std::io::Result<()> {
+    ) -> std::io::Result<Arc<SymbolData>> {
         if thread_count == 0 {
             eprintln!("Zero thread count");
             return Err(Error::new(ErrorKind::Other, "Thread count can't be 0"));
@@ -337,7 +338,7 @@ impl CodeTree {
             }))?;
         }
 
-        Ok(())
+        Ok(symbol_data)
     }
 
     pub fn traverse_disk_in_thread(
@@ -494,7 +495,7 @@ impl CodeTree {
         path.is_file()*/
     }
 
-    pub fn traverse_file(&self, file: PathBuf) -> Result<(), Error> {
+    pub fn traverse_file(&self, file: PathBuf) -> Result<Arc<SymbolData>, Error> {
         // eprintln!("Found {:?}", &file);
 
         let php_file = if file.is_file() {
